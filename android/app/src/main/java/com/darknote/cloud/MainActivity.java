@@ -161,7 +161,10 @@ public class MainActivity extends Activity {
             showOffline("No internet connection.");
             return;
         }
-        splash.setVisibility(View.VISIBLE);
+        if (!loaded) {
+            // Only the first load gets the full splash; refresh keeps the page visible.
+            splash.setVisibility(View.VISIBLE);
+        }
         if (force) {
             web.clearCache(true);
         }
