@@ -11,6 +11,21 @@ Cyber-themed hosted-bot marketplace and account/wallet foundation.
 6. Run `npm run dev`.
 7. Open `http://localhost:3000`.
 
+## Deploy on Vercel
+
+The app follows Vercel's Express preset: `app.js` exports the Express instance, `server.js` only adds the port listener for local runs, and `vercel.json` pins the framework so a stale project-level preset cannot break the build.
+
+1. Import the repository at [vercel.com/new](https://vercel.com/new) and leave the build settings empty — no build command, no output directory.
+2. Add the environment variables: `SESSION_SECRET` (32+ characters), `BASE_URL`, and any `MPESA_*` / OAuth values you use.
+3. Deploy.
+
+Notes for the Vercel runtime:
+
+- `public/**` is served by the CDN; `express.static()` is ignored there, which is fine because the files live at the same paths.
+- The code bundle is read-only, so SQLite falls back to `/tmp/darknote-cloud` when `DATABASE_DIR` is unwritable. That filesystem is wiped on every cold start: wallets, sessions and deposits do not survive. Point `DATABASE_DIR` at a mounted volume, or move the tables to Postgres, before anyone deposits real money.
+- Sessions are signed with `SESSION_SECRET`; without it the app boots with an ephemeral key and signs everyone out on each restart.
+- A full deploy of an empty commit fails in Vercel's Express builder, so redeploy the branch that actually contains the app.
+
 ## Wallet deposits (M-Pesa STK push)
 
 Signed-in customers tap **Deposit to wallet** and a sheet rises from the bottom of the screen:
