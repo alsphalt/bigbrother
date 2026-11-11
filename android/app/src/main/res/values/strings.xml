@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">DARKNOTE CLOUD</string>
+    <string name="splash_version">loading live site</string>
+    <string name="splash_loading">Connecting to your control plane…</string>
+    <string name="offline_title">You are offline</string>
+    <string name="offline_body">Darknote Cloud needs a connection to load your dashboard, wallet and hosting plans.</string>
+    <string name="offline_retry">Try again</string>
+    <string name="offline_browser">Open in browser</string>
+</resources>

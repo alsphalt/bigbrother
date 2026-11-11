@@ -1,0 +1,5 @@
+// The Android app is a thin WebView shell: the website stays the single source of
+// truth for features, so only app-shell changes need a new APK.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

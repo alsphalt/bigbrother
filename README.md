@@ -26,6 +26,47 @@ Notes for the Vercel runtime:
 - Sessions are signed with `SESSION_SECRET`; without it the app boots with an ephemeral key and signs everyone out on each restart.
 - A full deploy of an empty commit fails in Vercel's Express builder, so redeploy the branch that actually contains the app.
 
+## Android app (installable APK)
+
+`android/` holds a thin WebView shell. It loads the deployed site, so **features ship to the app the moment they ship to the website** — no new APK for a new dashboard, setting or button. An APK is only needed when the shell itself changes (icon, permissions, native hooks).
+
+### Install
+The site has an **Install app** button in the header and a *Install the app* section. Both lead to `GET /api/app/download`, which redirects to the APK on the newest GitHub release. Android asks for permission to install from that source — nothing is installed silently.
+
+### How the app stays in sync
+- `GET /api/app/version` returns `{ website: { version }, apk: { versionCode, versionName, ... } }`.
+- The website stamp is `APP_VERSION`, else the Vercel commit SHA, else a hash of `public/index.html`, `app.js`, `style.css`. It is stable per deployment, so cold starts never fake a new release.
+- On launch and on resume the app compares that stamp with the last one it saw. If it moved, it shows **NEW VERSION AVAILABLE — A new Darknote Cloud update is ready!** with **UPDATE NOW** (clears the WebView cache and reloads) and **UPDATE LATER** (keep using the current page, ask again next launch).
+- If the release carries a higher `versionCode`, the app offers **APP UPDATE AVAILABLE** and opens the APK download. Installing is always the user's tap.
+- Sessions live in WebView cookies (the 30-day rolling session cookie), so signing in once survives restarts.
+
+### Build locally
+```bash
+JAVA_HOME=/path/to/jdk17 ANDROID_HOME=/path/to/android-sdk \
+  gradle -p android assembleDebug assembleRelease \
+  -PappVersionName=1.0.1 -PappVersionCode=101 \
+  -PappBaseUrl=https://brutality-theta.vercel.app
+```
+Outputs land in `android/app/build/outputs/apk/{debug,release}/`.
+
+### Releases
+`.github/workflows/android.yml` builds both flavours on every push that touches `android/` and uploads them as artifacts (debug and release kept separate, 90 days). To publish:
+
+```bash
+git tag v1.0.2 && git push origin v1.0.2
+```
+
+The tag triggers the build and attaches `darknote-cloud-<version>-release.apk`, the debug APK, and `app-version.json` to the GitHub release. The website's download button and the in-app update check read that release, so they update themselves — no file to edit.
+
+Release signing uses repository secrets when present (`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`). Without them the release APK is signed with the debug key: fine for sideloading, **not** for Play.
+
+Set the repository variable `APP_BASE_URL` if you fork this to another domain; the default is `https://brutality-theta.vercel.app`.
+
+### Known limits
+- Google refuses OAuth inside embedded WebViews, so "Continue with Google" may fail in the app. Email/password and GitHub sign-in work; the browser flow remains available.
+- Offline shows a retry screen, not a cached copy of the dashboard.
+- The WebView needs the site to be reachable; there is no bundled copy of the site by design.
+
 ## Wallet deposits (M-Pesa STK push)
 
 Signed-in customers tap **Deposit to wallet** and a sheet rises from the bottom of the screen:

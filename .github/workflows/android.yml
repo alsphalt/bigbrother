@@ -1,0 +1,128 @@
+name: Android APK
+
+# The website deploys through Vercel on every push. This workflow only concerns the
+# APK shell: build it, keep debug and release separate, and attach both to a GitHub
+# release so /api/app/download always serves the newest published build.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this build as a GitHub release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    env:
+      APP_BASE_URL: ${{ vars.APP_BASE_URL || 'https://brutality-theta.vercel.app' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+            CODE="$(echo "$NAME" | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')"
+          else
+            NAME="1.0.${GITHUB_RUN_NUMBER}"
+            CODE="$((100 + GITHUB_RUN_NUMBER))"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Building versionName=$NAME versionCode=$CODE"
+
+      - name: Restore signing keystore
+        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/darknote.jks"
+          echo "SIGNING_KEYSTORE=$RUNNER_TEMP/darknote.jks" >> "$GITHUB_ENV"
+
+      - name: Build debug and release
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          gradle -p android assembleDebug assembleRelease \
+            -PappVersionName="${{ steps.version.outputs.name }}" \
+            -PappVersionCode="${{ steps.version.outputs.code }}" \
+            -PappBaseUrl="$APP_BASE_URL" \
+            --no-daemon --console=plain
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          NAME="${{ steps.version.outputs.name }}"
+          CODE="${{ steps.version.outputs.code }}"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/darknote-cloud-${NAME}-debug.apk"
+          RELEASE_APK="$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)"
+          cp "$RELEASE_APK" "dist/darknote-cloud-${NAME}-release.apk"
+          printf '{"versionCode": %s, "versionName": "%s", "builtAt": "%s"}\n' \
+            "$CODE" "$NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > dist/app-version.json
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darknote-cloud-${{ steps.version.outputs.name }}-debug
+          path: dist/*-debug.apk
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darknote-cloud-${{ steps.version.outputs.name }}-release
+          path: dist/darknote-cloud-${{ steps.version.outputs.name }}-release.apk
+          retention-days: 90
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v${{ steps.version.outputs.name }}"
+            git tag -f "$TAG" >/dev/null
+            git push origin "$TAG" --force
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Darknote Cloud $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" dist/*.apk dist/app-version.json --clobber
+          echo "Release $TAG now serves the APK through /api/app/download"

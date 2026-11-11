@@ -173,9 +173,84 @@ async function checkout(planId) {
   try { await api("/api/checkout",{method:"POST",body:JSON.stringify({planId})}); }
   catch(e) { alert(e.message); }
 }
+/* ---------------- Android app: install entry point ---------------- */
+const androidBridge = window.DarknoteApp || null;
+const inAndroidApp = Boolean(androidBridge) || /DarknoteCloud\//.test(navigator.userAgent);
+
+function humanSize(bytes) {
+  if (!bytes) return "";
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+function humanDate(iso) {
+  if (!iso) return "";
+  try { return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
+  catch { return ""; }
+}
+
+function describeApk(apk) {
+  if (!apk) return "No APK published yet — the build workflow attaches it to the first release.";
+  const bits = [`v${apk.versionName || "1.0.0"}`];
+  if (apk.sizeBytes) bits.push(humanSize(apk.sizeBytes));
+  if (apk.publishedAt) bits.push(`updated ${humanDate(apk.publishedAt)}`);
+  return bits.join(" · ");
+}
+
+async function loadAppMeta() {
+  let meta = null;
+  try { meta = await api("/api/app/version"); } catch (e) { console.warn("version feed unavailable:", e.message); }
+
+  const apk = meta?.apk || null;
+  const label = describeApk(apk);
+  if ($("#apkVersion")) $("#apkVersion").textContent = label;
+  if ($("#installMeta")) {
+    $("#installMeta").textContent = apk
+      ? `${label} · direct download from GitHub Releases`
+      : label;
+  }
+
+  // No release yet: keep the link, but say so instead of offering a broken download.
+  for (const id of ["#downloadApk", "#downloadApk2"]) {
+    const el = $(id);
+    if (!el) continue;
+    if (!apk) {
+      el.removeAttribute("href");
+      el.setAttribute("aria-disabled", "true");
+      el.classList.add("disabled");
+      el.textContent = "Not published yet";
+    } else {
+      el.href = "/api/app/download";
+      el.classList.remove("disabled");
+      el.textContent = "Download APK";
+    }
+  }
+
+  if (inAndroidApp) {
+    document.body.classList.add("in-app");
+    const installed = $("#appInstalled");
+    if (installed) {
+      installed.hidden = false;
+      const v = androidBridge?.getVersionName?.();
+      installed.textContent = v ? `Installed ✓ v${v}` : "Installed ✓";
+    }
+    const note = $("#apkNote");
+    if (note) note.textContent = "You are using the installed app. Website updates load automatically — no reinstall needed.";
+  }
+  return meta;
+}
+
+function openInstall() {
+  loadAppMeta();
+  $("#installModal").showModal();
+}
+
+if ($("#installApp")) $("#installApp").addEventListener("click", openInstall);
+if ($("#installHelp")) $("#installHelp").addEventListener("click", openInstall);
+if ($("#closeInstall")) $("#closeInstall").addEventListener("click", () => $("#installModal").close());
+
 async function boot(){
   try { const h=await api("/api/health"); $("#projectCount").textContent="0"; }
   catch(e){ $("#projectCount").textContent="—"; }
-  await Promise.all([loadPlans(),loadAccount()]);
+  await Promise.all([loadPlans(),loadAccount(),loadAppMeta()]);
 }
 boot();

@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import { websiteVersion, latestRelease } from "./lib/app-version.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -588,6 +589,50 @@ app.get("/api/admin/summary", loginRequired, adminRequired, (_req, res) => {
   });
 });
 app.get("/api/health", (_req, res) => res.json({ ok: true, service: "Darknote Cloud", version: "0.2.0" }));
+
+// ---------- Android app: website + APK version feed ----------
+// The installed APK polls this to learn whether the website moved on and whether a
+// newer APK exists. Both answers come from the running deployment and the latest
+// published GitHub release, so neither needs a manual edit.
+const publicDir = path.join(__dirname, "public");
+let websiteStamp = null;
+function currentWebsiteVersion() {
+  if (!websiteStamp) websiteStamp = websiteVersion(publicDir);
+  return websiteStamp;
+}
+
+app.get("/api/app/version", async (_req, res) => {
+  res.set("cache-control", "no-store");
+  const apk = await latestRelease();
+  res.json({
+    website: {
+      version: currentWebsiteVersion(),
+      channel: production ? "production" : "development"
+    },
+    apk: apk
+      ? {
+          versionName: apk.versionName,
+          versionCode: apk.versionCode,
+          sizeBytes: apk.sizeBytes,
+          publishedAt: apk.publishedAt,
+          releaseUrl: apk.releaseUrl,
+          downloadUrl: "/api/app/download"
+        }
+      : null,
+    minimumVersionCode: Number(process.env.APP_MIN_VERSION_CODE || 0)
+  });
+});
+
+app.get("/api/app/download", async (_req, res) => {
+  const apk = await latestRelease();
+  if (!apk?.assetUrl) {
+    return res.status(503).json({
+      error: "No Android build has been published yet. The first release appears here as soon as the build workflow finishes."
+    });
+  }
+  res.redirect(302, apk.assetUrl);
+});
+
 app.use((err, _req, res, _next) => {
   if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "Malformed JSON body." });
   console.error("Unhandled error:", err);

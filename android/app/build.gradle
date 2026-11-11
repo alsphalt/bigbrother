@@ -1,0 +1,73 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Everything the CI passes in stays optional so a plain `assembleDebug` works.
+def appVersionName = (findProperty("appVersionName") ?: "1.0.0").toString()
+def appVersionCode = (findProperty("appVersionCode") ?: "1").toString().toInteger()
+// Where the WebView points. Override with -PappBaseUrl=https://your-domain for a fork.
+def appBaseUrl = (findProperty("appBaseUrl") ?: "https://brutality-theta.vercel.app").toString()
+
+android {
+    namespace 'com.darknote.cloud'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.darknote.cloud"
+        minSdk 24
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+        buildConfigField "String", "BASE_URL", "\"${appBaseUrl}\""
+        resValue "string", "app_version_name", appVersionName
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            // Release signing is only configured when the CI provides a keystore.
+            if (System.getenv("SIGNING_KEYSTORE")) {
+                storeFile file(System.getenv("SIGNING_KEYSTORE"))
+                storePassword System.getenv("SIGNING_STORE_PASSWORD") ?: ""
+                keyAlias System.getenv("SIGNING_KEY_ALIAS") ?: "darknote"
+                keyPassword System.getenv("SIGNING_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Installs side by side with a release build, so both can be compared.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            // Debug builds follow the last website deployment, which is the point.
+            buildConfigField "String", "BASE_URL", "\"${appBaseUrl}\""
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            // Never silently install anything: this APK still needs the user to tap
+            // through Android's installer, and it is signed with the debug key only
+            // when no real keystore was supplied (fine for sideloading, not for Play).
+            signingConfig System.getenv("SIGNING_KEYSTORE") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    testImplementation 'junit:junit:4.13.2'
+}
