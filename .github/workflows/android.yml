@@ -31,6 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       APP_BASE_URL: ${{ vars.APP_BASE_URL || 'https://brutality-theta.vercel.app' }}
+      # Secrets cannot be read from a step-level `if`, so they are promoted here.
+      SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,30 +57,25 @@ jobs:
         id: version
         run: |
           set -euo pipefail
+          # versionCode is derived from the run number for every build, so it never
+          # goes backwards and the app can compare it with what the server reports.
+          CODE="$((100 + GITHUB_RUN_NUMBER))"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             NAME="${GITHUB_REF_NAME#v}"
-            CODE="$(echo "$NAME" | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')"
           else
             NAME="1.0.${GITHUB_RUN_NUMBER}"
-            CODE="$((100 + GITHUB_RUN_NUMBER))"
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Building versionName=$NAME versionCode=$CODE"
 
       - name: Restore signing keystore
-        if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        if: env.SIGNING_KEYSTORE_BASE64 != ''
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/darknote.jks"
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/darknote.jks"
           echo "SIGNING_KEYSTORE=$RUNNER_TEMP/darknote.jks" >> "$GITHUB_ENV"
 
       - name: Build debug and release
-        env:
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           gradle -p android assembleDebug assembleRelease \
             -PappVersionName="${{ steps.version.outputs.name }}" \
