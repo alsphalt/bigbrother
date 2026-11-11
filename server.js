@@ -11,10 +11,13 @@ import { Strategy as GitHubStrategy } from "passport-github2";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dataDirectory = path.join(__dirname, "data");
+fs.mkdirSync(dataDirectory, { recursive: true });
 const app = express();
-const db = new Database(path.join(__dirname, "data", "darknote-cloud.db"));
+const db = new Database(path.join(dataDirectory, "darknote-cloud.db"));
 const SQLiteStore = SQLiteStoreFactory(session);
 const production = process.env.NODE_ENV === "production";
 
