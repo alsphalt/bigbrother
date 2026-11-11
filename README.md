@@ -11,26 +11,72 @@ Cyber-themed hosted-bot marketplace and account/wallet foundation.
 6. Run `npm run dev`.
 7. Open `http://localhost:3000`.
 
+## Deploy on Vercel
+
+The app follows Vercel's Express preset: `app.js` exports the Express instance, `server.js` only adds the port listener for local runs, and `vercel.json` pins the framework so a stale project-level preset cannot break the build.
+
+1. Import the repository at [vercel.com/new](https://vercel.com/new) and leave the build settings empty — no build command, no output directory.
+2. Add the environment variables: `SESSION_SECRET` (32+ characters), `BASE_URL`, and any `MPESA_*` / OAuth values you use.
+3. Deploy.
+
+Notes for the Vercel runtime:
+
+- `public/**` is served by the CDN; `express.static()` is ignored there, which is fine because the files live at the same paths.
+- The code bundle is read-only, so SQLite falls back to `/tmp/darknote-cloud` when `DATABASE_DIR` is unwritable. That filesystem is wiped on every cold start: wallets, sessions and deposits do not survive. Point `DATABASE_DIR` at a mounted volume, or move the tables to Postgres, before anyone deposits real money.
+- Sessions are signed with `SESSION_SECRET`; without it the app boots with an ephemeral key and signs everyone out on each restart.
+- A full deploy of an empty commit fails in Vercel's Express builder, so redeploy the branch that actually contains the app.
+
+## Wallet deposits (M-Pesa STK push)
+
+Signed-in customers tap **Deposit to wallet** and a sheet rises from the bottom of the screen:
+
+1. Enter any whole-shilling amount from KSh 1 to KSh 150,000.
+2. Enter the Safaricom number that should pay.
+3. Tap **Send payment prompt** — M-Pesa shows a PIN prompt on that phone.
+4. The sheet waits, polling `GET /api/wallet/deposit/:reference` until the PIN is confirmed.
+5. M-Pesa calls `POST /api/mpesa/callback`; only then is the wallet credited and the ledger row completed.
+
+Endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/wallet/deposit` | Validate amount + number, create a deposit, send the STK push |
+| GET | `/api/wallet/deposit/:reference` | Poll status; also re-queries Daraja if the callback is slow |
+| POST | `/api/mpesa/callback` | Daraja result webhook — the only path that credits a wallet |
+
+Safety properties:
+
+- A deposit is credited inside one SQLite transaction, guarded by the deposit status, so a replayed or duplicated callback cannot credit twice.
+- The callback path accepts an optional shared secret (`MPESA_CALLBACK_SECRET`) in `?k=`; comparison is timing-safe.
+- Amounts and phone numbers are re-validated on the server; the browser cannot set the credited amount.
+- Unpaid deposits expire after 3 minutes and are marked failed with nothing deducted.
+
+## Staying signed in and keeping data
+
+Sessions are stored in SQLite, not memory, and the cookie is rolling with a 30-day lifetime — close the tab, come back in a week, and the same email, balance and history are still there.
+
+That only holds if `DATABASE_DIR` (or `DATABASE_FILE`) points at storage that survives a deploy. On a serverless host with a read-only or ephemeral filesystem, every restart wipes the database; mount a volume, or move the two tables to Postgres before real users arrive.
+
 ## Included
 - Responsive cyber-themed customer portal
 - Email registration and login with bcrypt password hashing
 - Session persistence in SQLite
 - Google and GitHub OAuth routes (require provider credentials)
-- Customer wallet ledger and pending deposit intents
+- Customer wallet ledger, M-Pesa STK-push deposits and live balance
 - Hosting plan catalogue
 - Customer subscription listing
 - Admin summary endpoint (requires an admin role in the database)
 - Health endpoint
 
 ## Deliberately not enabled
-- Real M-Pesa or card collection
-- Wallet crediting from browser requests
+- Card collection (M-Pesa only, and only when Daraja credentials are set)
+- Wallet crediting from browser requests (only the signed provider callback credits)
 - Paid checkout
 - Bot process start/stop/restart
 - Arbitrary shell terminal
 - Automatic server provisioning
 
-A deposit intent is only a pending record. It never credits a wallet. Implement a provider-specific server-side callback with signature verification, idempotency, reconciliation, refunds and audit logging before accepting money. Have an eligible adult or registered business own and configure payment-provider accounts and comply with applicable rules.
+Deposits credit the wallet only after M-Pesa confirms the customer's PIN. Before taking real money at scale, still add reconciliation against the M-Pesa statement, refunds, and an audit trail; and have an eligible adult or registered business own the Daraja shortcode and comply with applicable rules.
 
 ## OAuth setup
 Set `BASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` in `.env`. Configure callback URLs:

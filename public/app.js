@@ -35,7 +35,11 @@ async function loadAccount() {
     $("#walletBalance").textContent=money(wallet.wallet.balance_minor,wallet.wallet.currency);
     $("#walletLarge").textContent=money(wallet.wallet.balance_minor,wallet.wallet.currency);
     $("#serviceCount").textContent=services.length;
-    $("#walletHistory").innerHTML=wallet.transactions.length ? wallet.transactions.map(t=>`<div>${escapeHtml(t.description)} · ${money(t.amount_minor,t.currency)} · ${escapeHtml(t.status)}</div>`).join("") : "No transactions yet.";
+    const pending=(wallet.deposits||[]).filter(d=>d.status==="pending"||d.status==="processing");
+    const rows=[...pending.map(d=>`<div class="row pending"><span>${money(d.amount_minor,d.currency)} · ${escapeHtml(d.msisdn)}</span><b>waiting for PIN</b></div>`),
+      ...wallet.transactions.filter(t=>t.status!=="pending").map(t=>`<div class="row"><span>${escapeHtml(t.description)} · ${money(t.amount_minor,t.currency)}</span><b>${escapeHtml(t.status)}</b></div>`)];
+    $("#walletHistory").innerHTML=rows.length?rows.join(""):"No transactions yet.";
+    if(!wallet.mpesa?.enabled){ $("#depositNote").textContent="M-Pesa is not configured on this server yet — set the Daraja credentials to enable deposits."; }
     $("#serviceList").innerHTML=services.length ? services.map(s=>`<div>${escapeHtml(s.service_name)} · ${escapeHtml(s.plan_name)} · ${escapeHtml(s.status)}</div>`).join("") : "No hosted services yet.";
   } catch(e) { console.error(e); }
 }
@@ -60,20 +64,110 @@ $("#authForm").addEventListener("submit",async e=>{
     $("#authModal").close(); await loadAccount();
   } catch(err) { $("#authError").textContent=err.message; }
 });
-document.querySelectorAll("[data-method]").forEach(b=>b.addEventListener("click",()=>{
-  if(!currentUser){openAuth();return;}
-  selectedMethod=b.dataset.method; $("#depositError").textContent=""; $("#depositModal").showModal();
-}));
-$("#closeDeposit").addEventListener("click",()=>$("#depositModal").close());
-$("#depositForm").addEventListener("submit",async e=>{
-  e.preventDefault(); $("#depositError").textContent="";
+/* ---------------- wallet deposit sheet ---------------- */
+const sheet = $("#depositSheet"), backdrop = $("#sheetBackdrop");
+let pollTimer = null, pollStart = 0, activeRef = null;
+
+function prettyPhone(p) {
+  const d = String(p || "").replace(/\D/g, "").slice(-9);
+  return d.length === 9 ? `+254 ${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}` : p;
+}
+function showStep(name) {
+  ["stepAmount", "stepWait", "stepDone"].forEach(id => { $("#" + id).hidden = id !== name; });
+}
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function resetSheet() {
+  stopPolling(); activeRef = null;
+  $("#sheetError").textContent = "";
+  $("#amountInput").value = ""; $("#phoneInput").value = "";
+  document.querySelectorAll(".presets button").forEach(b => b.classList.remove("on"));
+  $("#payBtn").disabled = false; $("#payBtn").textContent = "Send payment prompt";
+  showStep("stepAmount");
+}
+function openSheet() {
+  if (!currentUser) { openAuth(); return; }
+  resetSheet();
+  backdrop.hidden = false; sheet.hidden = false;
+  document.body.classList.add("sheet-open");
+  requestAnimationFrame(() => sheet.classList.add("open"));
+  setTimeout(() => $("#amountInput").focus(), 320);
+}
+function closeSheet() {
+  stopPolling();
+  sheet.classList.remove("open");
+  document.body.classList.remove("sheet-open");
+  setTimeout(() => { sheet.hidden = true; backdrop.hidden = true; }, 300);
+}
+function depositFail(message) {
+  showStep("stepAmount");
+  $("#sheetError").textContent = message;
+  $("#payBtn").disabled = false;
+  $("#payBtn").textContent = "Try again";
+}
+function depositDone(d) {
+  $("#doneText").textContent = `${money(d.amount_minor, d.currency)} added from ${prettyPhone(d.phone)}`
+    + (d.receipt ? ` · receipt ${d.receipt}` : "");
+  $("#doneBalance").textContent = money(d.balance.balance_minor, d.balance.currency);
+  showStep("stepDone");
+  loadAccount();
+}
+async function pollDeposit() {
+  stopPolling();
+  const tick = async () => {
+    const secs = Math.floor((Date.now() - pollStart) / 1000);
+    $("#waitTimer").textContent = `Waiting ${secs}s — keep this screen open`;
+    if (secs > 155) { stopPolling(); depositFail("No confirmation arrived. If you entered your PIN, give it a minute and check your wallet. Nothing is credited twice."); return; }
+    try {
+      const d = await api(`/api/wallet/deposit/${activeRef}`);
+      if (d.status === "completed") { stopPolling(); depositDone(d); }
+      else if (d.status === "failed") { stopPolling(); depositFail(d.message || "The payment did not go through. Nothing was deducted."); }
+    } catch (e) { /* transient network error: keep waiting */ }
+  };
+  tick();
+  pollTimer = setInterval(tick, 2500);
+}
+async function startDeposit() {
+  $("#sheetError").textContent = "";
+  const amount = Number($("#amountInput").value);
+  let digits = $("#phoneInput").value.replace(/\D/g, "");
+  if (digits.startsWith("254")) digits = digits.slice(3);
+  else if (digits.startsWith("0")) digits = digits.slice(1);
+  if (!Number.isInteger(amount) || amount < 1) return void ($("#sheetError").textContent = "Enter an amount of at least KSh 1.");
+  if (amount > 150000) return void ($("#sheetError").textContent = "M-Pesa caps a single payment at KSh 150,000. Send a smaller amount.");
+  if (!/^[17]\d{8}$/.test(digits)) return void ($("#sheetError").textContent = "Enter a valid Safaricom number, for example 0712 345 678.");
+  $("#payBtn").disabled = true; $("#payBtn").textContent = "Sending prompt…";
   try {
-    const amount=Number($("#depositAmount").value);
-    const result=await api("/api/wallet/deposit-intent",{method:"POST",body:JSON.stringify({amountMinor:Math.round(amount*100),method:selectedMethod})});
-    $("#depositError").textContent=result.message;
-    await loadAccount();
-  } catch(err) { $("#depositError").textContent=err.message; }
+    const res = await api("/api/wallet/deposit", { method: "POST", body: JSON.stringify({ amount, phone: digits }) });
+    activeRef = res.reference;
+    $("#waitAmount").textContent = money(amount * 100);
+    $("#waitPhone").textContent = prettyPhone(digits);
+    $("#waitText").textContent = res.message || "Enter your M-Pesa PIN to confirm the deposit.";
+    showStep("stepWait");
+    pollStart = Date.now();
+    pollDeposit();
+  } catch (e) {
+    $("#payBtn").disabled = false; $("#payBtn").textContent = "Send payment prompt";
+    $("#sheetError").textContent = e.message;
+  }
+}
+
+$("#openDeposit").addEventListener("click", openSheet);
+$("#closeSheet").addEventListener("click", closeSheet);
+$("#cancelWait").addEventListener("click", closeSheet);
+$("#doneClose").addEventListener("click", closeSheet);
+backdrop.addEventListener("click", closeSheet);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
+$("#payBtn").addEventListener("click", startDeposit);
+$("#presets").addEventListener("click", e => {
+  const b = e.target.closest("button[data-amt]"); if (!b) return;
+  $("#amountInput").value = b.dataset.amt;
+  document.querySelectorAll(".presets button").forEach(x => x.classList.toggle("on", x === b));
 });
+document.querySelectorAll("[data-method]").forEach(b => b.addEventListener("click", () => {
+  if (b.dataset.method === "card") { alert("Card deposits are not enabled yet. Use M-Pesa."); return; }
+  openSheet();
+}));
+
 async function checkout(planId) {
   if(!currentUser){openAuth();return;}
   try { await api("/api/checkout",{method:"POST",body:JSON.stringify({planId})}); }

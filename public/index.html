@@ -4,8 +4,40 @@
 <section class="hero"><div><span class="eyebrow">DARKNOTE CLOUD / 001</span><h2>Deploy ideas.<br><em>Run everything.</em></h2><p>A home for your WhatsApp bots, Node.js services and hosted projects.</p><a href="#market" class="cta">Explore hosting ↗</a></div><div class="orb"><div class="orb-inner">D<span>◈</span></div></div></section>
 <section class="stats"><article><small>REGISTERED PROJECTS</small><b id="projectCount">—</b><span>Workspace registry</span></article><article><small>WALLET BALANCE</small><b id="walletBalance">Sign in</b><span>Customer account</span></article><article><small>ACTIVE SERVICES</small><b id="serviceCount">—</b><span>Your subscriptions</span></article><article><small>PLATFORM API</small><b class="cyan">ONLINE</b><span>Development mode</span></article></section>
 <section class="section" id="market"><div class="section-title"><div><span class="eyebrow">HOSTING MARKETPLACE</span><h2>Choose your power.</h2><p>Hosted bot plans. No source-code downloads.</p></div></div><div id="plans" class="plans"><div class="loading">Loading plans…</div></div></section>
-<section class="section two" id="wallet"><div class="panel"><span class="eyebrow">CUSTOMER WALLET</span><h2>Wallet</h2><p>Wallet ledger and deposit requests.</p><div class="balance" id="walletLarge">Sign in to view your balance</div><div class="pay-buttons"><button class="outline" data-method="mpesa">M-Pesa deposit</button><button class="outline" data-method="card">Card deposit</button></div><small class="warning">Deposits are not active until an approved payment provider is integrated.</small><div id="walletHistory" class="history">Sign in to see transactions.</div></div><div class="panel" id="services"><span class="eyebrow">YOUR HOSTED APPS</span><h2>My services</h2><p>Purchased hosting will appear here.</p><div id="serviceList" class="history">Sign in to view services.</div></div></section>
+<section class="section two" id="wallet"><div class="panel"><span class="eyebrow">CUSTOMER WALLET</span><h2>Wallet</h2><p>Wallet ledger and deposit requests.</p><div class="balance" id="walletLarge">Sign in to view your balance</div><div class="pay-buttons"><button class="cta" id="openDeposit">Deposit to wallet</button><button class="outline" data-method="card">Card · soon</button></div><small class="warning" id="depositNote">Pay with M-Pesa from any Safaricom number. Any amount from KSh 1.</small><div id="walletHistory" class="history">Sign in to see transactions.</div></div><div class="panel" id="services"><span class="eyebrow">YOUR HOSTED APPS</span><h2>My services</h2><p>Purchased hosting will appear here.</p><div id="serviceList" class="history">Sign in to view services.</div></div></section>
 <section class="section" id="modules"><div class="section-title"><div><span class="eyebrow">PLATFORM ROADMAP</span><h2>Control modules</h2></div></div><div class="modules"><article><b>01 / File manager</b><span>Project uploads and file browsing</span><label>UP NEXT</label></article><article><b>02 / Process manager</b><span>Safe start, stop and restart</span><label>PLANNED</label></article><article><b>03 / Live console</b><span>Application logs and diagnostics</span><label>PLANNED</label></article><article><b>04 / Server monitor</b><span>CPU, memory and uptime</span><label>PLANNED</label></article></div></section><footer>DARKNOTE CLOUD <span>CYBER CONTROL PLANE · v0.2</span></footer></main></div>
 <dialog id="authModal"><form id="authForm"><div class="modal-head"><div><span class="eyebrow">ACCOUNT ACCESS</span><h2 id="authTitle">Sign in</h2></div><button type="button" id="closeAuth" class="close">×</button></div><div class="oauth"><a href="/auth/google">Continue with Google</a><a href="/auth/github">Continue with GitHub</a></div><div class="or">OR WITH EMAIL</div><div id="nameWrap" hidden><label>Display name</label><input id="displayName" autocomplete="name" placeholder="Your name"></div><label>Email</label><input id="email" type="email" required autocomplete="email" placeholder="you@example.com"><label>Password</label><input id="password" type="password" required minlength="12" autocomplete="current-password" placeholder="At least 12 characters"><p id="authError" class="error"></p><button class="cta full" id="authSubmit">Sign in</button><button type="button" class="switch" id="switchAuth">Create an account</button></form></dialog>
-<dialog id="depositModal"><form id="depositForm"><div class="modal-head"><div><span class="eyebrow">WALLET</span><h2>Deposit request</h2></div><button type="button" id="closeDeposit" class="close">×</button></div><label>Amount (KES)</label><input id="depositAmount" type="number" min="100" max="1000000" step="1" value="500" required><p class="warning">This creates a pending request only. It will not collect money or increase your wallet balance.</p><p id="depositError" class="error"></p><button class="cta full">Create pending request</button></form></dialog>
+<div id="sheetBackdrop" class="sheet-backdrop" hidden></div>
+<section id="depositSheet" class="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+<div class="grip"></div>
+<div class="sheet-head"><div><span class="eyebrow">WALLET TOP-UP</span><h2 id="sheetTitle">Deposit to wallet</h2></div><button type="button" class="close" id="closeSheet" aria-label="Close">×</button></div>
+
+<div class="sheet-step" id="stepAmount">
+<label class="field-label" for="amountInput">Amount</label>
+<div class="input-shell"><span class="prefix">KSh</span><input id="amountInput" type="number" inputmode="numeric" min="1" max="150000" step="1" placeholder="0" autocomplete="off"></div>
+<div class="presets" id="presets"><button type="button" data-amt="100">100</button><button type="button" data-amt="500">500</button><button type="button" data-amt="1000">1,000</button><button type="button" data-amt="2500">2,500</button><button type="button" data-amt="5000">5,000</button></div>
+<label class="field-label" for="phoneInput">M-Pesa number</label>
+<div class="input-shell"><span class="prefix">+254</span><input id="phoneInput" type="tel" inputmode="numeric" placeholder="712 345 678" autocomplete="tel"></div>
+<p class="hint">A prompt appears on this number asking you to enter your M-Pesa PIN. The money lands in your wallet as soon as you do.</p>
+<p class="error" id="sheetError"></p>
+<button class="cta full" id="payBtn" type="button">Send payment prompt</button>
+</div>
+
+<div class="sheet-step" id="stepWait" hidden>
+<div class="pulse-orbit"><i></i><i></i><i></i></div>
+<h3 id="waitTitle">Check your phone</h3>
+<p class="hint" id="waitText">Enter your M-Pesa PIN to confirm the deposit.</p>
+<div class="wait-meta"><span id="waitAmount">—</span><span id="waitPhone">—</span></div>
+<p class="hint" id="waitTimer"></p>
+<button class="switch" type="button" id="cancelWait">Cancel and close</button>
+</div>
+
+<div class="sheet-step" id="stepDone" hidden>
+<div class="done-mark">✓</div>
+<h3>Money added to your wallet</h3>
+<p class="hint" id="doneText"></p>
+<div class="done-balance"><span>NEW BALANCE</span><b id="doneBalance">—</b></div>
+<button class="cta full" id="doneClose" type="button">Done</button>
+</div>
+</section>
 <script src="/app.js"></script></body></html>
